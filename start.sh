@@ -7,4 +7,4 @@ set -e
 source "$(dirname "$0")/venv/bin/activate"
 
 # Run the Python module
-python -m app.main
+python -m app
