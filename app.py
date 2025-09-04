@@ -2,7 +2,6 @@ import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from hubspot_service import update_hubspot_contact_and_deal
-from config import HUBSPOT_API_KEY
 
 app = Flask(__name__)
 CORS(app)
