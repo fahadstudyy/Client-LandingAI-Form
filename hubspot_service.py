@@ -1,80 +1,132 @@
+import os
 import requests
-from config import HUBSPOT_API_KEY
+from dotenv import load_dotenv
+
+load_dotenv()
+
+HUBSPOT_ACCESS_TOKEN = os.getenv("HUBSPOT_ACCESS_TOKEN")
 
 def update_hubspot_contact_and_deal(email, interest):
-    service_category_map = {
-        "Solar & Battery": "Solar & Battery",
-        "Solar": "Solar Only",
-        "Battery": "Battery Only"
-    }
-    deal_service_category = service_category_map.get(interest, "Uncategorized")
-    contact_id = None
-    
+    """
+    Creates or updates a deal and associates it with a contact, then updates the contact.
+    """
+    if not HUBSPOT_ACCESS_TOKEN:
+        return False, "HubSpot API token not found."
+
     headers = {
-        "Authorization": f"Bearer {HUBSPOT_API_KEY}",
+        "Authorization": f"Bearer {HUBSPOT_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
     try:
-        # 1. Upsert/Update the Contact 
-        upsert_url = "https://api.hubapi.com/crm/v3/objects/contacts?idProperty=email"
-        upsert_payload = {
-            "properties": {
-                "email": email,
-                "interest": interest
-            }
-        }
-        upsert_response = requests.post(upsert_url, headers=headers, json=upsert_payload)
 
-        if upsert_response.status_code == 409:
-            error_data = upsert_response.json()
-            if 'message' in error_data and 'Existing ID:' in error_data['message']:
-                contact_id = error_data['message'].split('Existing ID: ')[-1]
-                print(f"Contact already exists. Updating contact ID: {contact_id}")
-                
-                # Update logic for existing contact, note the 'interest' property is updated here
-                update_url = f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}"
-                update_payload = {"properties": {"interest": interest}}
-                update_response = requests.patch(update_url, headers=headers, json=update_payload)
-                update_response.raise_for_status()
-                print(f"Successfully updated interest for contact ID: {contact_id}")
+        get_contact_url = f"https://api.hubapi.com/crm/v3/objects/contacts/{email}?idProperty=email&properties=firstname,lastname"
+        contact_response = requests.get(get_contact_url, headers=headers)
+        contact_response.raise_for_status()
+        contact_data = contact_response.json()
+        contact_id = contact_data["id"]
+
+        first_name = contact_data["properties"].get("firstname", "")
         
-        elif upsert_response.status_code in [200, 201]:
-            contact_data = upsert_response.json()
-            contact_id = contact_data['id']
-            print(f"Contact upserted successfully. ID: {contact_id}")
-        
+        full_name = f"{first_name}".strip()
+        if not full_name:
+            deal_name = email
         else:
-            upsert_response.raise_for_status()
+            deal_name = full_name
 
-        # 2. Check and Update the Associated Deal (This part is now moved outside the conditional)
-        if not contact_id:
-            return False, "Failed to get contact ID."
-
-        associations_url = f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}/associations/deal"
-        associations_response = requests.get(associations_url, headers=headers)
-        associations_response.raise_for_status()
-        associations_data = associations_response.json()
-
-        if not associations_data.get('results'):
-            print(f"No associated deals for contact {contact_id}. Skipping deal update.")
-            return True, "Contact upserted, but no deal was updated."
-
-        deal_id = associations_data['results'][0]['id']
-        update_deal_url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
-        update_deal_payload = {"properties": {"service_category": deal_service_category}}
-
-        update_deal_response = requests.patch(update_deal_url, headers=headers, json=update_deal_payload)
-        update_deal_response.raise_for_status()
-
-        print(f"Updated 'service_category' to '{deal_service_category}' for deal ID {deal_id}.")
-        return True, "Contact and associated deal updated successfully."
+        service_category_map = {
+            "Solar & Battery": "Solar & Battery",
+            "Solar": "Solar Only",
+            "Battery": "Battery Only"
+        }
         
-    except requests.exceptions.HTTPError as err:
-        error_message = f"HubSpot API error: {err.response.text}"
-        print(f"HTTP Error {err.response.status_code}: {error_message}")
-        return False, error_message
-    except Exception as e:
-        error_message = f"Unexpected error: {e}"
-        print(error_message)
-        return False, error_message
+        service_category_value = service_category_map.get(interest, None)
+        
+        if not service_category_value:
+            raise ValueError(f"Invalid interest value: '{interest}'. It must be one of {list(service_category_map.keys())}")
+
+
+        search_deal_url = "https://api.hubapi.com/crm/v3/objects/deals/search"
+        search_payload = {
+            "filterGroups": [
+                {
+                    "filters": [
+                        {
+                            "propertyName": "dealname",
+                            "operator": "EQ",
+                            "value": deal_name
+                        }
+                    ]
+                }
+            ],
+            "limit": 1
+        }
+        search_response = requests.post(search_deal_url, headers=headers, json=search_payload)
+        search_response.raise_for_status()
+        search_results = search_response.json().get("results", [])
+        
+        deal_id = None
+        if search_results:
+            deal_id = search_results[0]["id"]
+
+            update_deal_url = f"https://api.hubapi.com/crm/v3/objects/deals/{deal_id}"
+            update_deal_payload = {
+                "properties": {
+                    "dealstage": "appointmentscheduled",
+                    "service_category": service_category_value
+                }
+            }
+            requests.patch(update_deal_url, headers=headers, json=update_deal_payload).raise_for_status()
+
+            associate_url = "https://api.hubapi.com/crm/v3/associations/deals/contacts/batch/create"
+            association_payload = {
+                "inputs": [
+                    {
+                        "from": { "id": deal_id },
+                        "to": { "id": contact_id },
+                        "type": "deal_to_contact"
+                    }
+                ]
+            }
+            requests.post(associate_url, headers=headers, json=association_payload).raise_for_status()
+            
+            update_contact_url = f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}"
+            contact_payload = {"properties": {"interest": interest}}
+            requests.patch(update_contact_url, headers=headers, json=contact_payload).raise_for_status()
+
+            return True, f"Contact updated and existing deal (ID: {deal_id}) updated and associated."
+
+        else:
+
+            create_deal_url = "https://api.hubapi.com/crm/v3/objects/deals"
+            create_deal_payload = {
+                "properties": {
+                    "dealname": deal_name,
+                    "dealstage": "appointmentscheduled",
+                    "service_category": service_category_value
+                },
+                "associations": [
+                    {
+                        "to": {"id": contact_id, "type": "contact"},
+                        "types": [
+                            {"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 3}
+                        ]
+                    }
+                ]
+            }
+            create_deal_response = requests.post(create_deal_url, headers=headers, json=create_deal_payload)
+            create_deal_response.raise_for_status()
+            new_deal_id = create_deal_response.json()["id"]
+
+            update_contact_url = f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}"
+            contact_payload = {"properties": {"interest": interest}}
+            requests.patch(update_contact_url, headers=headers, json=contact_payload).raise_for_status()
+
+            return True, f"Contact updated and new deal created (ID: {new_deal_id}) and associated."
+
+    except requests.exceptions.RequestException as e:
+        error_message = e.response.text if e.response else str(e)
+        print(f"An error occurred with the HTTP API request: {error_message}")
+        return False, f"An error occurred while updating HubSpot: {error_message}"
+    except ValueError as e:
+        return False, str(e)

@@ -27,6 +27,5 @@ def submit():
 
     return jsonify({"success": success, "message": message, "received": data}), status_code
 
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=9000)
