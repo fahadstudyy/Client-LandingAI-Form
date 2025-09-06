@@ -18,11 +18,12 @@ def submit():
 
     email = data.get("email")
     interest = data.get("interest")
+    postcode = data.get('postcode')
 
     if not email or not interest:
         return jsonify({"success": False, "message": "Missing required fields: 'email' or 'interest'."}), 400
 
-    success, message = update_hubspot_contact_and_deal(email, interest)
+    success, message = update_hubspot_contact_and_deal(email, interest, postcode)
     status_code = 200 if success else 500
 
     return jsonify({"success": success, "message": message, "received": data}), status_code
