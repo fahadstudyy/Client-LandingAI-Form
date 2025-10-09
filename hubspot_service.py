@@ -61,7 +61,8 @@ def update_hubspot_contact_and_deal(email, interest, postcode):
                 "dealname": deal_name,
                 "dealstage": "appointmentscheduled",
                 "service_category": service_category_value,
-                "enquiry_notes": f"Postcode (form entry): {postcode}"
+                "enquiry_notes": f"Postcode (form entry): {postcode}",
+                "master__deal_source": "Google Ads"
             },
             "associations": [
                 {
