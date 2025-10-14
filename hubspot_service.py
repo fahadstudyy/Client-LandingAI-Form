@@ -78,13 +78,6 @@ def update_hubspot_contact_and_deal(email, interest, postcode):
         new_deal_id = create_deal_response.json()["id"]
         print(f"SUCCESS: New deal created with ID: {new_deal_id}")
 
-        # Step 3: Update the contact's interest property
-        print("STEP 3: Updating contact's interest property...")
-        update_contact_url = f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}"
-        contact_payload = {"properties": {"form_submission_interest": interest}}
-        requests.patch(update_contact_url, headers=headers, json=contact_payload).raise_for_status()
-        print("SUCCESS: Contact interest property updated.")
-
         return True, f"Contact updated and new deal created (ID: {new_deal_id}) and associated."
 
     except requests.exceptions.RequestException as e:
